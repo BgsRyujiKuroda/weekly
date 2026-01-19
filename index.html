@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>勤怠予定作成（日付指定可）</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/japanese-holidays@1.0.10/lib/japanese-holidays.min.js"></script>
+    <style>
+        body { font-family: "Helvetica Neue", Arial, sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col items-center py-10 px-4">
+
+    <div class="bg-white shadow-md rounded-lg w-full max-w-2xl p-6">
+        <h2 class="text-2xl font-bold text-center text-gray-700 mb-2">勤怠予定作成</h2>
+        <p class="text-sm text-center text-gray-500 mb-6">
+            開始日を選択し、内容を入力して「コピー」を押してください。<br>
+            祝日は自動判定されます。
+        </p>
+
+        <div class="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-100 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <label for="startDatePicker" class="font-bold text-blue-800">開始日（月曜日）:</label>
+            <input type="date" id="startDatePicker" class="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-700 bg-white shadow-sm">
+        </div>
+
+        <div id="schedule-container" class="space-y-4">
+            </div>
+
+        <div class="mt-8 pt-4 border-t border-gray-100">
+            <button onclick="copySchedule()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-lg shadow transition duration-200 flex items-center justify-center gap-2 text-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                </svg>
+                予定をコピーする
+            </button>
+            <p id="toast" class="text-center text-green-600 font-bold mt-3 h-6 opacity-0 transition-opacity duration-500">
+                クリップボードにコピーしました！
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
+        const picker = document.getElementById('startDatePicker');
+        const container = document.getElementById('schedule-container');
+
+        // 日付を YYYY-MM-DD 文字列に変換（Date Picker用）
+        function toDateInputValue(date) {
+            const y = date.getFullYear();
+            const m = ('0' + (date.getMonth() + 1)).slice(-2);
+            const d = ('0' + date.getDate()).slice(-2);
+            return `${y}-${m}-${d}`;
+        }
+
+        // 翌週の月曜日を計算（初期値用）
+        function getNextMonday() {
+            const d = new Date();
+            const day = d.getDay(); 
+            const diff = (day === 0 ? 1 : (8 - day));
+            d.setDate(d.getDate() + diff);
+            return d;
+        }
+
+        // 入力欄生成のメイン処理
+        function generateScheduleFields(startDate) {
+            container.innerHTML = ''; // リセット
+
+            // ヘッダー用日付（コピー時の1行目に使用）
+            container.dataset.headerDate = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
+
+            // 5日分ループ
+            for (let i = 0; i < 5; i++) {
+                const targetDate = new Date(startDate);
+                targetDate.setDate(startDate.getDate() + i);
+
+                const m = targetDate.getMonth() + 1;
+                const d = targetDate.getDate();
+                const w = weekDays[targetDate.getDay()];
+                
+                const labelText = `${m}/${d} (${w})`;
+                const copyLabel = `${m}/${d}${w}`;
+
+                let defaultVal = "";
+                let inputBg = "bg-white";
+                let labelColor = "text-gray-700";
+
+                // 祝日判定
+                try {
+                    if (typeof JapaneseHolidays !== 'undefined') {
+                        const holidayName = JapaneseHolidays.isHoliday(targetDate);
+                        if (holidayName) {
+                            defaultVal = holidayName; 
+                            inputBg = "bg-red-50 text-red-600 font-bold";
+                            labelColor = "text-red-500";
+                        }
+                    }
+                } catch (e) {
+                    console.error("祝日判定エラー:", e);
+                }
+
+                // HTML生成
+                const row = document.createElement('div');
+                row.className = "flex flex-col sm:flex-row items-start sm:items-center gap-2";
+                row.innerHTML = `
+                    <label class="w-24 flex-shrink-0 font-bold ${labelColor} pt-1 sm:pt-0">
+                        ${labelText}
+                    </label>
+                    <input type="text" 
+                        data-copy-prefix="${copyLabel}" 
+                        value="${defaultVal}"
+                        class="flex-1 w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${inputBg}"
+                        placeholder="予定を入力"
+                    >
+                `;
+                container.appendChild(row);
+            }
+        }
+
+        // Pickerの値が変更されたら再描画
+        function onDateChange() {
+            const val = picker.value;
+            if (!val) return;
+            
+            // "2026-02-09" をローカル時間としてパースする
+            // new Date("2026-02-09") はUTCになる場合があるため、splitして作成
+            const parts = val.split('-');
+            const year = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1;
+            const day = parseInt(parts[2], 10);
+            
+            const selectedDate = new Date(year, month, day);
+            generateScheduleFields(selectedDate);
+        }
+
+        // 初期化処理
+        function init() {
+            // 1. デフォルト：翌週月曜日を計算
+            const defaultDate = getNextMonday();
+            
+            // 2. Pickerにセット
+            picker.value = toDateInputValue(defaultDate);
+
+            // 3. 画面生成
+            generateScheduleFields(defaultDate);
+
+            // 4. イベントリスナー登録
+            picker.addEventListener('change', onDateChange);
+        }
+
+        // コピー機能（変更なし）
+        function copySchedule() {
+            const headerDate = container.dataset.headerDate;
+            let text = `${headerDate}週の予定です。\n`;
+            const inputs = container.querySelectorAll('input');
+            inputs.forEach(input => {
+                const prefix = input.getAttribute('data-copy-prefix');
+                const val = input.value.trim(); 
+                text += `${prefix}　${val}\n`;
+            });
+            navigator.clipboard.writeText(text).then(() => {
+                const toast = document.getElementById('toast');
+                toast.classList.remove('opacity-0');
+                setTimeout(() => toast.classList.add('opacity-0'), 2000);
+            }).catch(err => {
+                alert('コピーに失敗しました。');
+            });
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
